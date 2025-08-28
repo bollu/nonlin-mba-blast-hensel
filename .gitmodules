@@ -1,0 +1,3 @@
+[submodule "cvc5"]
+	path = cvc5
+	url = git@github.com:bollu/cvc5.git
