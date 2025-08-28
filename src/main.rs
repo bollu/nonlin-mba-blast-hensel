@@ -304,6 +304,27 @@ impl Iterator for IntEnvIter {
     }
 }
 
+fn check_term(g : &Generator, t : &Term) {
+    // check if eqn holds with inputs {0, 1}, and then check if it
+    // holds for inputs being bitvectors where the relations hold.
+    if let Some(cex) = t.is_identically_zero (IntEnvIter::new_bool(g.nvars)) {
+        println!("BAD: Term {:?} evaluates to nonzero value {:?} @ env {:?}",
+            t, t.eval_int(&cex), cex);
+        return; 
+    }
+
+    // because equation holds, check on larger outputs. 
+    if let Some(cex) = t.is_identically_zero (IntEnvIter::new(g.nvars,
+        -(g.maxvarval as i64),
+        g.maxvarval as i64)) {
+        println!("ERROR: Term {:?} that was true on the booleans evaluates to nonzero value {:?} @ env {:?}",
+            t, t.eval_int(&cex), cex);
+        return; 
+    } else {
+        println!("GOOD: Term {:?} is identically zero both on booleans and bitvectors", t);
+    }
+
+}
 
 fn main() {
     let g = Generator {
@@ -319,22 +340,7 @@ fn main() {
     );
 
     loop {
-        // check if eqn holds with inputs {0, 1}, and then check if it
-        // holds for inputs being bitvectors where the relations hold.
-        if let Some(cex) = t.is_identically_zero (IntEnvIter::new_bool(g.nvars)) {
-            println!("GOOD: Term {:?} evaluates to nonzero value {:?} @ env {:?}",
-                t, t.eval_int(&cex), cex);
-            continue; 
-        }
-
-        // because equation holds, check on larger outputs. 
-        if let Some(cex) = t.is_identically_zero (IntEnvIter::new(g.nvars,
-            -(g.maxvarval as i64),
-            g.maxvarval as i64)) {
-            println!("ERROR: Term {:?} that was true on the booleans evaluates to nonzero value {:?} @ env {:?}",
-                t, t.eval_int(&cex), cex);
-            continue; 
-        }
+        check_term(&g, &t);
         // get the next term.
         if let Some(next_term) = g.next_term(&t) {
             t = next_term;
