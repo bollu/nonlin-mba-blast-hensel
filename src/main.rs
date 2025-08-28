@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
+use owo_colors::OwoColorize;
+
 
 #[derive(Debug, Clone, Copy)]
 struct VarId(usize);
@@ -406,7 +408,8 @@ fn check_term(g : &Generator, t : &Term) {
     // check if eqn holds with inputs {0, 1}, and then check if it
     // holds for inputs being bitvectors where the relations hold.
     if let Some(cex) = t.is_identically_zero (IntEnvIter::new_bool(g.nvars)) {
-        println!("SKIP: Term {} evaluates to nonzero value {} @ env {}",
+        print!("{}:", "SKIP".yellow());
+        println!("Term {} evaluates to nonzero value {} @ env {}",
             t, t.eval_int(&cex), cex);
         return; 
     }
@@ -415,11 +418,13 @@ fn check_term(g : &Generator, t : &Term) {
     if let Some(cex) = t.is_identically_zero (IntEnvIter::new(g.nvars,
         -(g.maxvarval as i64),
         g.maxvarval as i64)) {
-        println!("ERROR: Term {} that was true on the booleans evaluates to nonzero value {:?} @ env {}",
+        print!("{}:", "ERROR".red());
+        println!("Term {} that was identically zero on {{0,1}} evaluates to nonzero value {:?} @ env {}",
             t, t.eval_int(&cex), cex);
         return; 
     } else {
-        println!("GOOD: Term {} is identically zero both on booleans and bitvectors", t);
+        print!("{}:", "GOOD".green());
+        println!("Term {} is identically zero both on booleans and bitvectors", t);
     }
 
 }
