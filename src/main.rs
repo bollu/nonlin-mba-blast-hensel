@@ -1,15 +1,13 @@
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy)]
-enum Binop {
-    And,
-    Or,
-    Xor,
-}
-
 struct VarId(usize);
 
+#[derive(Debug, Clone, Copy)]
 struct RobddId(usize);
+
+#[derive(Debug, Clone, Copy)]
 enum RobddNodeKind {
     Node {
         var: RobddId,
@@ -18,15 +16,18 @@ enum RobddNodeKind {
     },
     Leaf(bool),
 }
-
+#[derive(Debug, Clone, Copy)]
 struct RobddNode {
     kind: RobddNodeKind,
     hash: u64,
 }
 
+#[derive(Debug, Clone)]
+
 struct Robdd {
     nodes : Vec<RobddNode>
 }
+
 
 // contains the truth table of the boolean function.
 // Each entry in the set is a vector of variable assignments that yield true.
@@ -38,10 +39,53 @@ struct Factor {
     coeff : i64,
 }
 
+
 #[derive(Debug, Clone)]
 struct Term {
     factors : Vec<Factor>,
 }
+
+
+#[derive(Debug, Clone)]
+struct Literal {
+    var: usize,   // VarId assumed usize for demo
+    negated: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Clause {
+    vars: Vec<Literal>,
+}
+
+#[derive(Debug, Clone)]
+struct CNF {
+    clauses: Vec<Clause>,
+}
+
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.negated {
+            write!(f, "¬x{}", self.var)
+        } else {
+            write!(f, "x{}", self.var)
+        }
+    }
+}
+
+impl fmt::Display for Clause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let parts: Vec<String> = self.vars.iter().map(|lit| lit.to_string()).collect();
+        write!(f, "({})", parts.join("|"))
+    }
+}
+
+impl fmt::Display for CNF {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let parts: Vec<String> = self.clauses.iter().map(|cl| cl.to_string()).collect();
+        write!(f, "{}", parts.join("&"))
+    }
+}
+
 
 // Environment to hold variable assignments
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,8 +103,20 @@ impl<T : Clone> Env<T> {
     }
 }
 
+
+
 type BoolEnv = Env<bool>;
 type IntEnv = Env<i64>;
+
+impl BoolEnv {
+    fn to_clause(&self) -> Clause {
+        let mut vars = Vec::new();
+        for (i, &val) in self.assigns.iter().enumerate() {
+            vars.push(Literal { var: i, negated: !val });
+        }
+        Clause { vars }
+    }
+}
 
 impl IntEnv {
     fn to_bool_env(&self, slice : usize) -> BoolEnv {
@@ -77,6 +133,21 @@ impl IntEnv {
             assigns.push((env.assigns[i] as i64) << i);
         }
         IntEnv::new(assigns)
+    }
+}
+
+impl fmt::Display for IntEnv {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // write x_i = v_i
+        write!(f, "<")?;
+        for (i, &val) in self.assigns.iter().enumerate() {
+            write!(f, "x{}:{}", i, val)?;
+            if i + 1 < self.assigns.len() {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, ">")?;
+        Ok(())
     }
 }
 
@@ -135,6 +206,16 @@ impl TruthTable {
         result
     }
 
+    fn to_cnf(&self) -> CNF {
+        CNF { clauses: self.table.iter().map(|env| env.to_clause()).collect() }
+    }
+
+}
+
+impl fmt::Display for TruthTable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_cnf().fmt(f)
+    }
 }
 
 impl Factor {
@@ -146,6 +227,14 @@ impl Factor {
         // Generate the next coefficient in some order (e.g., incrementing)
         // Placeholder implementation
         None
+    }
+}
+
+impl fmt::Display for Factor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // print +/- for coeff
+        let sign = if self.coeff < 0 { "-" } else { "+" };
+        write!(f, "{}{}{}", sign, self.coeff.abs(), self.tt)
     }
 }
 
@@ -165,6 +254,15 @@ impl Term {
             result += factor_value;
         }
         result
+    }
+}
+
+impl fmt::Display for Term {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // write separated by space.
+        let mut entries: Vec<String> = self.factors.iter().map(|factor| factor.to_string()).collect();
+        entries.sort();
+        write!(f, "{}", entries.join(" "))
     }
 }
 
@@ -308,7 +406,7 @@ fn check_term(g : &Generator, t : &Term) {
     // check if eqn holds with inputs {0, 1}, and then check if it
     // holds for inputs being bitvectors where the relations hold.
     if let Some(cex) = t.is_identically_zero (IntEnvIter::new_bool(g.nvars)) {
-        println!("BAD: Term {:?} evaluates to nonzero value {:?} @ env {:?}",
+        println!("SKIP: Term {} evaluates to nonzero value {} @ env {}",
             t, t.eval_int(&cex), cex);
         return; 
     }
@@ -317,11 +415,11 @@ fn check_term(g : &Generator, t : &Term) {
     if let Some(cex) = t.is_identically_zero (IntEnvIter::new(g.nvars,
         -(g.maxvarval as i64),
         g.maxvarval as i64)) {
-        println!("ERROR: Term {:?} that was true on the booleans evaluates to nonzero value {:?} @ env {:?}",
+        println!("ERROR: Term {} that was true on the booleans evaluates to nonzero value {:?} @ env {}",
             t, t.eval_int(&cex), cex);
         return; 
     } else {
-        println!("GOOD: Term {:?} is identically zero both on booleans and bitvectors", t);
+        println!("GOOD: Term {} is identically zero both on booleans and bitvectors", t);
     }
 
 }
