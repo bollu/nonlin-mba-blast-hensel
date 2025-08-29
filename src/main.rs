@@ -1,7 +1,6 @@
+use owo_colors::OwoColorize;
 use std::collections::HashSet;
 use std::fmt;
-use owo_colors::OwoColorize;
-
 
 #[derive(Debug, Clone, Copy)]
 struct VarId(usize);
@@ -27,30 +26,27 @@ struct RobddNode {
 #[derive(Debug, Clone)]
 
 struct Robdd {
-    nodes : Vec<RobddNode>
+    nodes: Vec<RobddNode>,
 }
-
 
 // contains the truth table of the boolean function.
 // Each entry in the set is a vector of variable assignments that yield true.
 #[derive(Debug, Clone)]
 struct Factor {
     // the truth table of the boolean function.
-    bool_fn : TruthTable,
+    bool_fn: TruthTable,
     // the coefficient of the factor.
-    coeff : i64,
+    coeff: i64,
 }
-
 
 #[derive(Debug, Clone)]
 struct Term {
-    factors : Vec<Factor>,
+    factors: Vec<Factor>,
 }
-
 
 #[derive(Debug, Clone)]
 struct Literal {
-    var: usize,   // VarId assumed usize for demo
+    var: usize, // VarId assumed usize for demo
     negated: bool,
 }
 
@@ -63,7 +59,6 @@ struct ConjClause {
 struct Dnf {
     clauses: Vec<ConjClause>,
 }
-
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -92,14 +87,13 @@ impl fmt::Display for Dnf {
     }
 }
 
-
 // Environment to hold variable assignments
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Env<T> {
-    assigns : Vec<T>,
+    assigns: Vec<T>,
 }
 
-impl<T : Clone> Env<T> {
+impl<T: Clone> Env<T> {
     fn new(assigns: Vec<T>) -> Self {
         Env { assigns }
     }
@@ -109,8 +103,6 @@ impl<T : Clone> Env<T> {
     }
 }
 
-
-
 type BoolEnv = Env<bool>;
 type IntEnv = Env<i64>;
 
@@ -118,14 +110,17 @@ impl BoolEnv {
     fn to_clause(&self) -> ConjClause {
         let mut vars = Vec::new();
         for (i, &val) in self.assigns.iter().enumerate() {
-            vars.push(Literal { var: i, negated: !val });
+            vars.push(Literal {
+                var: i,
+                negated: !val,
+            });
         }
         ConjClause { vars }
     }
 }
 
 impl IntEnv {
-    fn to_bool_env_by_slice_bits(&self, slice : usize) -> BoolEnv {
+    fn to_bool_env_by_slice_bits(&self, slice: usize) -> BoolEnv {
         let mut assigns = Vec::new();
         for i in 0..self.assigns.len() {
             assigns.push((self.assigns[i] & (1 << slice)) == 1);
@@ -157,7 +152,6 @@ impl fmt::Display for IntEnv {
     }
 }
 
-
 // impl BoolEnv {
 //     fn to_int_env(&self) -> IntEnv {
 //         IntEnv::of_bool_env(self, 0)
@@ -168,19 +162,19 @@ impl fmt::Display for IntEnv {
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct TruthTable {
     // the truth table, which contains all variable assignments that yield true.
-    table : HashSet<BoolEnv>,
+    table: HashSet<BoolEnv>,
 }
 
-
 // generate all truth tables for n variables
-fn truth_tables(nvars : usize) -> Vec<TruthTable> {
+fn truth_tables(nvars: usize) -> Vec<TruthTable> {
     let mut tables = Vec::new();
     let total_entries = 1 << nvars; // 2^nvars
-    for i in 0..(1 << total_entries) { // 2^(2^nvars)
+    for i in 0..(1 << total_entries) {
+        // 2^(2^nvars)
         let mut bool_fn = TruthTable::new();
         for j in 0..total_entries {
             if (i & (1 << j)) != 0 {
-                let assigns : Vec<bool> = (0..nvars).map(|k| (j & (1 << k)) != 0).collect();
+                let assigns: Vec<bool> = (0..nvars).map(|k| (j & (1 << k)) != 0).collect();
                 bool_fn.add_true(Env { assigns });
             }
         }
@@ -191,7 +185,9 @@ fn truth_tables(nvars : usize) -> Vec<TruthTable> {
 
 impl TruthTable {
     fn new() -> Self {
-        TruthTable { table: HashSet::new() }
+        TruthTable {
+            table: HashSet::new(),
+        }
     }
 
     fn add_true(&mut self, entry: BoolEnv) {
@@ -215,9 +211,10 @@ impl TruthTable {
     }
 
     fn to_dnf(&self) -> Dnf {
-        Dnf { clauses: self.table.iter().map(|env| env.to_clause()).collect() }
+        Dnf {
+            clauses: self.table.iter().map(|env| env.to_clause()).collect(),
+        }
     }
-
 }
 
 impl fmt::Display for TruthTable {
@@ -258,7 +255,11 @@ impl Term {
 impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // write separated by space.
-        let mut entries: Vec<String> = self.factors.iter().map(|factor| factor.to_string()).collect();
+        let mut entries: Vec<String> = self
+            .factors
+            .iter()
+            .map(|factor| factor.to_string())
+            .collect();
         entries.sort();
         if entries.is_empty() {
             entries.push("0".to_string());
@@ -270,20 +271,19 @@ impl fmt::Display for Term {
 // a Generatable<T> allows us to get first() and next() values of type T.
 
 struct Generator {
-    bool_fns : Vec<TruthTable>,
-    nvars : usize,
-    maxcoeff : usize, // max coefficient value.
-    maxfactors : usize, // max number of factors.
-    maxvarval : usize
+    bool_fns: Vec<TruthTable>,
+    nvars: usize,
+    maxcoeff: usize,   // max coefficient value.
+    maxfactors: usize, // max number of factors.
+    maxvarval: usize,
 }
 
 impl Generator {
-
     fn first_truth_table(&self) -> Option<&TruthTable> {
         self.bool_fns.first()
     }
 
-    fn next_truth_table(&self, bool_fn : &TruthTable) -> Option<TruthTable> {
+    fn next_truth_table(&self, bool_fn: &TruthTable) -> Option<TruthTable> {
         let idx = self.bool_fns.iter().position(|x| x == bool_fn)?;
         if idx + 1 < self.bool_fns.len() {
             Some(self.bool_fns[idx + 1].clone())
@@ -340,11 +340,10 @@ impl Generator {
         }
         None
     }
-
 }
 
 impl Term {
-    fn is_identically_zero (&self, envs : IntEnvIter) -> Option<IntEnv> {
+    fn is_identically_zero(&self, envs: IntEnvIter) -> Option<IntEnv> {
         for env in envs {
             if self.eval_int(&env) != 0 {
                 return Some(env);
@@ -373,7 +372,7 @@ impl IntEnvIter {
         }
     }
 
-    fn new_bool(nvars : usize) -> Self {
+    fn new_bool(nvars: usize) -> Self {
         IntEnvIter::new(nvars, 0, 1)
     }
 }
@@ -396,7 +395,6 @@ impl Iterator for IntEnvIter {
     type Item = Env<i64>;
 
     fn next(&mut self) -> Option<Self::Item> {
-
         if self.done {
             return None;
         }
@@ -413,7 +411,7 @@ impl Iterator for IntEnvIter {
     }
 }
 
-fn print_term_eval_table(t : &Term, iter : IntEnvIter) {
+fn print_term_eval_table(t: &Term, iter: IntEnvIter) {
     for env in iter {
         let val = t.eval_int(&env);
         let str = format!("   @ {} => {}", env, val);
@@ -432,33 +430,45 @@ enum CheckTermResult {
     Error(IntEnv),
 }
 
-fn check_term(g : &Generator, t : &Term) -> CheckTermResult {
+fn check_term(g: &Generator, t: &Term) -> CheckTermResult {
     // check if eqn holds with inputs {0, 1}, and then check if it
     // holds for inputs being bitvectors where the relations hold.
-    if let Some(cex) = t.is_identically_zero (IntEnvIter::new_bool(g.nvars)) {
+    if let Some(cex) = t.is_identically_zero(IntEnvIter::new_bool(g.nvars)) {
         print!("{}:", "SKIP".yellow());
-        println!("Term {} evaluates to nonzero value {} @ env {}",
-            t, t.eval_int(&cex), cex);
+        println!(
+            "Term {} evaluates to nonzero value {} @ env {}",
+            t,
+            t.eval_int(&cex),
+            cex
+        );
         print_term_eval_table(t, IntEnvIter::new_bool(g.nvars));
-        return CheckTermResult::Skip(cex)
+        return CheckTermResult::Skip(cex);
     }
 
     // because equation holds, check on larger outputs.
-    if let Some(cex) = t.is_identically_zero (IntEnvIter::new(g.nvars,
+    if let Some(cex) = t.is_identically_zero(IntEnvIter::new(
+        g.nvars,
         -(g.maxvarval as i64),
-        g.maxvarval as i64)) {
+        g.maxvarval as i64,
+    )) {
         print!("{}:", "ERROR".red());
-        println!("Term {} that was identically zero on {{0,1}} evaluates to nonzero value {:?} @ env {}",
-            t, t.eval_int(&cex), cex);
+        println!(
+            "Term {} that was identically zero on {{0,1}} evaluates to nonzero value {:?} @ env {}",
+            t,
+            t.eval_int(&cex),
+            cex
+        );
 
         print_term_eval_table(t, IntEnvIter::new_bool(g.nvars));
         CheckTermResult::Error(cex)
     } else {
         print!("{}:", "GOOD".green());
-        println!("Term {} is identically zero both on booleans and bitvectors", t);
+        println!(
+            "Term {} is identically zero both on booleans and bitvectors",
+            t
+        );
         CheckTermResult::Good
     }
-
 }
 
 fn main() {
@@ -467,12 +477,12 @@ fn main() {
         nvars: 2,
         maxcoeff: 3,
         maxfactors: 2,
-        maxvarval: 2
+        maxvarval: 2,
     };
 
-    let mut t = g.first_term().unwrap_or_else(||
-        panic!("No first term available")
-    );
+    let mut t = g
+        .first_term()
+        .unwrap_or_else(|| panic!("No first term available"));
 
     let mut errors = Vec::new();
     let mut good = Vec::new();
@@ -480,14 +490,12 @@ fn main() {
     loop {
         let check_result = check_term(&g, &t);
         match check_result {
-            CheckTermResult::Good =>
-                good.push(t.clone()),
-            CheckTermResult::Skip(env) =>
-                skips.push((t.clone(), env)),
+            CheckTermResult::Good => good.push(t.clone()),
+            CheckTermResult::Skip(env) => skips.push((t.clone(), env)),
             CheckTermResult::Error(env) => {
                 errors.push((t.clone(), env));
                 break;
-            },
+            }
         }
 
         // get the next term.
@@ -499,7 +507,10 @@ fn main() {
     }
 
     println!("\nSummary:");
-    println!("  {} terms checked", good.len() + skips.len() + errors.len());
+    println!(
+        "  {} terms checked",
+        good.len() + skips.len() + errors.len()
+    );
     println!("  {} terms are identically zero", good.len());
     println!("  {} terms skipped", skips.len());
     println!("  {} terms found with errors", errors.len());
