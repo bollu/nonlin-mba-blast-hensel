@@ -504,7 +504,14 @@ fn main() {
     println!("  {} terms skipped", skips.len());
     println!("  {} terms found with errors", errors.len());
 
-    for (ter, env) in errors {
-        println!("Error term: {} @ env {} = {}", ter, env, ter.eval_int(&env));
+    for (ter, env) in errors.iter() {
+        println!("Error term: {} @ env {} = {}", ter, env, ter.eval_int(env));
+    }
+
+    // set exit code based on errors
+    if !errors.is_empty() {
+        std::process::exit(1);
+    } else {
+        std::process::exit(0);
     }
 }
