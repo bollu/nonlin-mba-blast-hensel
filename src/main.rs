@@ -275,7 +275,7 @@ struct Generator {
     nvars: usize,
     maxcoeff: usize,   // max coefficient value.
     maxfactors: usize, // max number of factors.
-    maxvarval: usize,
+    max_check_upto: usize,
 }
 
 impl Generator {
@@ -436,20 +436,20 @@ fn check_term(g: &Generator, t: &Term) -> CheckTermResult {
     if let Some(cex) = t.is_identically_zero(IntEnvIter::new_bool(g.nvars)) {
         print!("{}:", "SKIP".yellow());
         println!(
-            "Term {} evaluates to nonzero value {} @ env {}",
+            "Term {} evaluates to nonzero value {} @ boolenv {}",
             t,
             t.eval_int(&cex),
             cex
         );
-        print_term_eval_table(t, IntEnvIter::new_bool(g.nvars));
+        // print_term_eval_table(t, IntEnvIter::new_bool(g.nvars));
         return CheckTermResult::Skip(cex);
     }
 
     // because equation holds, check on larger outputs.
     if let Some(cex) = t.is_identically_zero(IntEnvIter::new(
         g.nvars,
-        -(g.maxvarval as i64),
-        g.maxvarval as i64,
+        -(g.max_check_upto as i64),
+        g.max_check_upto as i64,
     )) {
         print!("{}:", "ERROR".red());
         println!(
@@ -475,9 +475,9 @@ fn main() {
     let g = Generator {
         bool_fns: truth_tables(2),
         nvars: 2,
-        maxcoeff: 3,
-        maxfactors: 2,
-        maxvarval: 2,
+        maxcoeff: 4,
+        maxfactors: 5,
+        max_check_upto: 3,
     };
 
     let mut t = g
