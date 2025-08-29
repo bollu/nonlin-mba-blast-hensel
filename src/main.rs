@@ -1,6 +1,11 @@
+
+// #![feature(btree_cursors)]
+
 use owo_colors::OwoColorize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
+use std::io::Empty;
+use std::ops::{Bound, Range};
 
 #[derive(Debug, Clone, Copy)]
 struct VarId(usize);
@@ -29,15 +34,127 @@ struct Robdd {
     nodes: Vec<RobddNode>,
 }
 
+trait Indexer<Item> {
+    fn nitems(&self) -> usize;
+    // assert that idx < nitems.
+    fn index(&self, idx: usize) -> Item;
+}
+
+struct RangeIndexer<Idx> {
+    range: Range<Idx>,
+}
+
+impl<Idx: Copy + std::ops::Add<Output = Idx> + 
+    std::ops::Sub<Output = Idx> + Default +
+    TryInto<usize>  + 
+    TryFrom<usize>> Indexer<Idx> for RangeIndexer<Idx>  {
+    fn nitems(&self) -> usize {
+        self.range.end.try_into().unwrap_or(0) - self.range.start.try_into().unwrap_or(0)
+    }
+
+    fn index(&self, idx: usize) -> Idx {
+        self.range.start + idx.try_into().unwrap_or_default()
+    }
+}
+
+
+struct VecNIndexer<T> {
+    indexer : Box<dyn Indexer<T>>,
+    n : usize
+}
+
+impl<T> Indexer<Vec<T>> for VecNIndexer<T> 
+{
+    fn nitems(&self) -> usize {
+        self.indexer.nitems() * self.n
+    }
+
+    fn index(&self, idx: usize) -> Vec<T> {
+        assert!(idx < self.nitems());
+        let mut idx = idx;
+        let mut arr : Vec<T> = Vec::with_capacity(self.n);
+        for _ in 0..self.n {
+            let sub_idx = idx % self.indexer.nitems();
+            arr.push(self.indexer.index(sub_idx));
+            idx /= self.indexer.nitems();
+        }
+        arr
+    }
+}
+
+struct EmptyIndexer {}
+impl<T> Indexer<T> for EmptyIndexer {
+    fn nitems(&self) -> usize {
+        0
+    }
+
+    fn index(&self, _idx: usize) -> T {
+       panic!("empty indexer has no items");
+    }
+}
+
+struct SeqIndexer<T> {
+    // map from accumulated sizes to indexers.
+    indexers : BTreeMap<usize, Box<dyn Indexer<T>>>,
+}
+
+impl<T> SeqIndexer<T> {
+    fn new(indexers: Vec<Box<dyn Indexer<T>>>) -> Self {
+        let mut map = BTreeMap::new();
+        let mut acc_size = 0;
+        for indexer in indexers {
+            acc_size += indexer.nitems();
+            // we insert an indexer at the size it ends.
+            map.insert(acc_size, indexer);
+        }
+
+        SeqIndexer {
+            indexers: map,
+        }
+    }
+}
+
+impl <T> Indexer<T> for SeqIndexer<T> 
+{
+    fn nitems(&self) -> usize {
+        if let Some((last_size, _)) = self.indexers.iter().last() {
+            *last_size
+        } else {
+            0
+        }
+    }
+
+    fn index(&self, idx: usize) -> T {
+        assert!(idx < self.nitems());
+
+        // find the first element that contains 'idx'.
+        if let Some(val) = self.indexers.range((Bound::Included(idx), Bound::Unbounded)).next() {
+            let (_, indexer) = val;
+            return indexer.index(idx);
+        }
+        panic!("expected index to be called with valid index, but was called with index '{idx}' which is larger than total size '{}'", self.nitems())
+    }
+}
+
+fn vec0n_indexer<T : 'static>(indexer : Box<dyn Indexer<T>>, start_size : usize, max_size : usize) -> 
+        Box<dyn Indexer<Vec<T>>> where dyn Indexer<T>: Clone {
+    let mut indexers : Vec<Box<dyn Indexer<Vec<T>>>> = Vec::new();
+    for i in start_size..=max_size {
+        indexers.push(Box::new(VecNIndexer { indexer: indexer.clone(), n: i }));
+    }
+    Box::new(SeqIndexer::new(indexers))
+}
+
 // contains the truth table of the boolean function.
 // Each entry in the set is a vector of variable assignments that yield true.
 #[derive(Debug, Clone)]
 struct Factor {
     // the truth table of the boolean function.
-    bool_fn: TruthTable,
+    bool_fns: Vec<TruthTable>,
     // the coefficient of the factor.
     coeff: i64,
 }
+
 
 #[derive(Debug, Clone)]
 struct Term {
@@ -127,14 +244,6 @@ impl IntEnv {
         }
         BoolEnv::new(assigns)
     }
-
-    // fn of_bool_env(env: &BoolEnv, slice : usize) -> Self {
-    //     let mut assigns = Vec::new();
-    //     for i in 0..env.assigns.len() {
-    //         assigns.push((env.assigns[i] as i64) << slice);
-    //     }
-    //     IntEnv::new(assigns)
-    // }
 }
 
 impl fmt::Display for IntEnv {
@@ -151,13 +260,6 @@ impl fmt::Display for IntEnv {
         Ok(())
     }
 }
-
-// impl BoolEnv {
-//     fn to_int_env(&self) -> IntEnv {
-//         IntEnv::of_bool_env(self, 0)
-//     }
-//
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct TruthTable {
@@ -224,12 +326,18 @@ impl fmt::Display for TruthTable {
 }
 
 impl Factor {
-    fn new(bool_fn: TruthTable, coeff: i64) -> Self {
-        Factor { bool_fn, coeff }
+    fn new(bool_fns: Vec<TruthTable>, coeff: i64) -> Self {
+        Factor { bool_fns, coeff }
     }
 
     fn eval_int(&self, env: &IntEnv) -> i64 {
-        self.coeff * self.bool_fn.eval_int_bitwise(env)
+        // multiply values of all boolean functions
+        let mut result = self.coeff ;
+
+        for bfn in self.bool_fns.iter() {
+            result *= bfn.eval_int_bitwise(env);
+        }
+        result
     }
 }
 
@@ -237,7 +345,11 @@ impl fmt::Display for Factor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // print +/- for coeff
         let sign = if self.coeff < 0 { "-" } else { "+" };
-        write!(f, "{}{}{}", sign, self.coeff.abs(), self.bool_fn)
+        write!(f, "{}{}", sign, self.coeff.abs());
+        for bfn in self.bool_fns.iter() {
+            write!(f, " {}", bfn)?;
+        }
+        Ok(())
     }
 }
 
@@ -268,15 +380,17 @@ impl fmt::Display for Term {
     }
 }
 
-// a Generatable<T> allows us to get first() and next() values of type T.
+
 
 struct Generator {
     bool_fns: Vec<TruthTable>,
     nvars: usize,
     maxcoeff: usize,   // max coefficient value.
     maxfactors: usize, // max number of factors.
+    maxbitwiseperfactor : usize, // #bitwise truth tables per factor.
     max_check_upto: usize,
 }
+
 
 impl Generator {
     fn first_truth_table(&self) -> Option<&TruthTable> {
@@ -305,14 +419,13 @@ impl Generator {
     }
 
     fn first_factor(&self) -> Option<Factor> {
-        let bool_fn = self.first_truth_table()?.clone();
         let coeff = self.first_coeff()?;
-        Some(Factor::new(bool_fn, coeff))
+        Some(Factor::new(Vec::new(), coeff))
     }
 
     fn next_factor(&self, factor: &Factor) -> Option<Factor> {
         match self.next_coeff(factor.coeff) {
-            Some(next_coeff) => Some(Factor::new(factor.bool_fn.clone(), next_coeff)),
+            Some(next_coeff) => Some(Factor::new(factor.bool_fns.clone(), next_coeff)),
             None => match self.next_truth_table(&factor.bool_fn) {
                 Some(next_bool_fn) => Some(Factor::new(next_bool_fn, self.first_coeff()?)),
                 None => None,
@@ -376,6 +489,7 @@ impl IntEnvIter {
         IntEnvIter::new(nvars, 0, 1)
     }
 }
+
 
 // return if we could increment
 fn env_next(env: &mut Vec<i64>, min_val: i64, max_val: i64) -> bool {
@@ -470,6 +584,7 @@ fn check_term(g: &Generator, t: &Term) -> CheckTermResult {
         CheckTermResult::Good
     }
 }
+
 
 fn main() {
     let g = Generator {
